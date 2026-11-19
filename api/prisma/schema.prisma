@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum ClientStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+}
+
+enum DeliverableStatus {
+  DRAFT
+  SHARED
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+enum RequestStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+enum RequestType {
+  CHANGE
+  DOCUMENT
+  QUESTION
+}
+
+enum Decision {
+  AGREE
+  DECLINE
+}
+
+enum LinkScope {
+  DELIVERABLE
+  PROJECT
+}
+
+model Workspace {
+  id            String   @id @default(uuid())
+  name          String
+  logoPath      String?
+  brandColor    String   @default("#2563eb")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  users         User[]
+  invites       Invite[]
+  clients       Client[]
+  contacts      Contact[]
+  projects      Project[]
+  milestones    Milestone[]
+  deliverables  Deliverable[]
+  versions      DeliverableVersion[]
+  updates       ProgressUpdate[]
+  approvals     Approval[]
+  requests      Request[]
+  magicLinks    MagicLink[]
+  auditLog      AuditLog[]
+  emailFailures EmailFailure[]
+
+  @@map("workspaces")
+}
+
+model User {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authId      String    @unique
+  name        String
+  email       String
+  role        Role      @default(MEMBER)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  clients     Client[]  @relation("ClientOwner")
+  requests    Request[] @relation("RequestOwner")
+
+  @@index([workspaceId])
+  @@map("users")
+}
+
+model Invite {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@map("invites")
+}
+
+model Client {
+  id              String       @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  company         String
+  website         String?
+  industry        String?
+  status          ClientStatus @default(ACTIVE)
+  ownerId         String?
+  owner           User?        @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  internalNotes   String?
+  digestEnabled   Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  contacts        Contact[]
+  projects        Project[]
+  requests        Request[]
+  magicLinks      MagicLink[]
+
+  @@index([workspaceId])
+  @@map("clients")
+}
+
+model Contact {
+  id          String      @id @default(uuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId    String
+  client      Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name        String
+  email       String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  magicLinks  MagicLink[]
+
+  @@index([workspaceId, clientId])
+  @@map("contacts")
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId     String
+  client       Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name         String
+  status       ProjectStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  milestones   Milestone[]
+  deliverables Deliverable[]
+  updates      ProgressUpdate[]
+
+  @@index([workspaceId, clientId])
+  @@map("projects")
+}
+
+model Milestone {
+  id           String        @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title        String
+  dueDate      DateTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deliverables Deliverable[]
+
+  @@index([workspaceId, projectId])
+  @@map("milestones")
+}
+
+model Deliverable {
+  id             String              @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId    String?
+  milestone      Milestone?          @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  title          String
+  description    String              @default("")
+  status         DeliverableStatus   @default(DRAFT)
+  currentVersion Int                 @default(0)
+  sharedAt       DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  versions       DeliverableVersion[]
+  approvals      Approval[]
+  requests       Request[]
+  magicLinks     MagicLink[]
+
+  @@index([workspaceId, projectId])
+  @@map("deliverables")
+}
+
+model DeliverableVersion {
+  id            String      @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliverableId String
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  version       Int
+  filePath      String
+  fileName      String
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([deliverableId, version])
+  @@index([workspaceId])
+  @@map("deliverable_versions")
+}
+
+model ProgressUpdate {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text        String
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, projectId])
+  @@map("progress_updates")
+}
+
+// Append-only: there is deliberately no update or delete route for this table.
+model Approval {
+  id            String      @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliverableId String
+  deliverable   Deliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  version       Int
+  approverName  String
+  contactId     String?
+  approvedAt    DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now())
+
+  @@unique([deliverableId, version])
+  @@index([workspaceId])
+  @@map("approvals")
+}
+
+model Request {
+  id             String        @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  deliverableId  String?
+  deliverable    Deliverable?  @relation(fields: [deliverableId], references: [id], onDelete: SetNull)
+  contactId      String?
+  contactName    String
+  type           RequestType
+  text           String
+  status         RequestStatus @default(OPEN)
+  ownerId        String?
+  owner          User?         @relation("RequestOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  impactTimeline String?
+  impactCost     String?
+  reply          String?
+  decision       Decision?
+  repliedById    String?
+  repliedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([clientId])
+  @@map("requests")
+}
+
+model MagicLink {
+  id            String       @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  scope         LinkScope
+  deliverableId String?
+  deliverable   Deliverable? @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  projectId     String?
+  tokenHash     String       @unique
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  usedAt        DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([workspaceId, clientId])
+  @@map("magic_links")
+}
+
+// Append-only: there is deliberately no update or delete route for this table.
+model AuditLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId    String?
+  actorType   String
+  actorId     String?
+  actorName   String?
+  action      String
+  entityType  String
+  entityId    String
+  details     String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@index([workspaceId, clientId, createdAt])
+  @@map("audit_log")
+}
+
+model EmailFailure {
+  id          String    @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  toEmail     String
+  subject     String
+  error       String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@map("email_failures")
+}
